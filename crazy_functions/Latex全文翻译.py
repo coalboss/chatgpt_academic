@@ -11,10 +11,9 @@ class PaperFileGroup():
         self.sp_file_tag = []
 
         # count_token
-        import tiktoken
-        from toolbox import get_conf
-        enc = tiktoken.encoding_for_model(*get_conf('LLM_MODEL'))
-        def get_token_num(txt): return len(enc.encode(txt))
+        from request_llm.bridge_all import model_info
+        enc = model_info["gpt-3.5-turbo"]['tokenizer']
+        def get_token_num(txt): return len(enc.encode(txt, disallowed_special=()))
         self.get_token_num = get_token_num
 
     def run_file_split(self, max_token_limit=1900):
@@ -90,7 +89,7 @@ def 多文件翻译(file_manifest, project_folder, llm_kwargs, plugin_kwargs, ch
         chatbot=chatbot,
         history_array=[[""] for _ in range(n_split)],
         sys_prompt_array=sys_prompt_array,
-        max_workers=10,  # OpenAI所允许的最大并行过载
+        # max_workers=5,  # OpenAI所允许的最大并行过载
         scroller_max_len = 80
     )
 

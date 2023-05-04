@@ -11,10 +11,9 @@ class PaperFileGroup():
         self.sp_file_tag = []
 
         # count_token
-        import tiktoken
-        from toolbox import get_conf
-        enc = tiktoken.encoding_for_model(*get_conf('LLM_MODEL'))
-        def get_token_num(txt): return len(enc.encode(txt))
+        from request_llm.bridge_all import model_info
+        enc = model_info["gpt-3.5-turbo"]['tokenizer']
+        def get_token_num(txt): return len(enc.encode(txt, disallowed_special=()))
         self.get_token_num = get_token_num
 
     def run_file_split(self, max_token_limit=1900):
@@ -51,7 +50,7 @@ def 多文件翻译(file_manifest, project_folder, llm_kwargs, plugin_kwargs, ch
             pfg.file_contents.append(file_content)
 
     #  <-------- 拆分过长的Markdown文件 ----------> 
-    pfg.run_file_split(max_token_limit=2048)
+    pfg.run_file_split(max_token_limit=1500)
     n_split = len(pfg.sp_file_contents)
 
     #  <-------- 多线程润色开始 ----------> 
@@ -73,7 +72,7 @@ def 多文件翻译(file_manifest, project_folder, llm_kwargs, plugin_kwargs, ch
         chatbot=chatbot,
         history_array=[[""] for _ in range(n_split)],
         sys_prompt_array=sys_prompt_array,
-        max_workers=10,  # OpenAI所允许的最大并行过载
+        # max_workers=5,  # OpenAI所允许的最大并行过载
         scroller_max_len = 80
     )
 
@@ -85,7 +84,33 @@ def 多文件翻译(file_manifest, project_folder, llm_kwargs, plugin_kwargs, ch
     yield from update_ui(chatbot=chatbot, history=history) # 刷新界面
 
 
+def get_files_from_everything(txt):
+    import glob, os
 
+    success = True
+    if txt.startswith('http'):
+        # 网络的远程文件
+        txt = txt.replace("https://github.com/", "https://raw.githubusercontent.com/")
+        txt = txt.replace("/blob/", "/")
+        import requests
+        from toolbox import get_conf
+        proxies, = get_conf('proxies')
+        r = requests.get(txt, proxies=proxies)
+        with open('./gpt_log/temp.md', 'wb+') as f: f.write(r.content)
+        project_folder = './gpt_log/'
+        file_manifest = ['./gpt_log/temp.md']
+    elif txt.endswith('.md'):
+        # 直接给定文件
+        file_manifest = [txt]
+        project_folder = os.path.dirname(txt)
+    elif os.path.exists(txt):
+        # 本地路径，递归搜索
+        project_folder = txt
+        file_manifest = [f for f in glob.glob(f'{project_folder}/**/*.md', recursive=True)]
+    else:
+        success = False
+
+    return success, file_manifest, project_folder
 
 
 @CatchException
@@ -99,6 +124,7 @@ def Markdown英译中(txt, llm_kwargs, plugin_kwargs, chatbot, history, system_p
     # 尝试导入依赖，如果缺少依赖，则给出安装建议
     try:
         import tiktoken
+        import glob, os
     except:
         report_execption(chatbot, history,
                          a=f"解析项目: {txt}",
@@ -106,19 +132,21 @@ def Markdown英译中(txt, llm_kwargs, plugin_kwargs, chatbot, history, system_p
         yield from update_ui(chatbot=chatbot, history=history) # 刷新界面
         return
     history = []    # 清空历史，以免输入溢出
-    import glob, os
-    if os.path.exists(txt):
-        project_folder = txt
-    else:
+
+    success, file_manifest, project_folder = get_files_from_everything(txt)
+
+    if not success:
+        # 什么都没有
         if txt == "": txt = '空空如也的输入栏'
         report_execption(chatbot, history, a = f"解析项目: {txt}", b = f"找不到本地项目或无权访问: {txt}")
         yield from update_ui(chatbot=chatbot, history=history) # 刷新界面
         return
-    file_manifest = [f for f in glob.glob(f'{project_folder}/**/*.md', recursive=True)]
+
     if len(file_manifest) == 0:
         report_execption(chatbot, history, a = f"解析项目: {txt}", b = f"找不到任何.md文件: {txt}")
         yield from update_ui(chatbot=chatbot, history=history) # 刷新界面
         return
+
     yield from 多文件翻译(file_manifest, project_folder, llm_kwargs, plugin_kwargs, chatbot, history, system_prompt, language='en->zh')
 
 
@@ -136,6 +164,7 @@ def Markdown中译英(txt, llm_kwargs, plugin_kwargs, chatbot, history, system_p
     # 尝试导入依赖，如果缺少依赖，则给出安装建议
     try:
         import tiktoken
+        import glob, os
     except:
         report_execption(chatbot, history,
                          a=f"解析项目: {txt}",
@@ -143,18 +172,13 @@ def Markdown中译英(txt, llm_kwargs, plugin_kwargs, chatbot, history, system_p
         yield from update_ui(chatbot=chatbot, history=history) # 刷新界面
         return
     history = []    # 清空历史，以免输入溢出
-    import glob, os
-    if os.path.exists(txt):
-        project_folder = txt
-    else:
+    success, file_manifest, project_folder = get_files_from_everything(txt)
+    if not success:
+        # 什么都没有
         if txt == "": txt = '空空如也的输入栏'
         report_execption(chatbot, history, a = f"解析项目: {txt}", b = f"找不到本地项目或无权访问: {txt}")
         yield from update_ui(chatbot=chatbot, history=history) # 刷新界面
         return
-    if txt.endswith('.md'):
-        file_manifest = [txt]
-    else:
-        file_manifest = [f for f in glob.glob(f'{project_folder}/**/*.md', recursive=True)]
     if len(file_manifest) == 0:
         report_execption(chatbot, history, a = f"解析项目: {txt}", b = f"找不到任何.md文件: {txt}")
         yield from update_ui(chatbot=chatbot, history=history) # 刷新界面
