@@ -2,6 +2,7 @@ import os; os.environ['no_proxy'] = '*' # 避免代理网络产生意外污染
 
 def main():
     import gradio as gr
+    if gr.__version__ not in ['3.28.3','3.32.2']: assert False, "需要特殊依赖，请务必用 pip install -r requirements.txt 指令安装依赖，详情信息见requirements.txt"
     from request_llm.bridge_all import predict
     from toolbox import format_io, find_free_port, on_file_uploaded, on_report_generated, get_conf, ArgsGeneralWrapper, DummyWith
     # 建议您复制一个config_private.py放自己的秘密, 如API和代理网址, 避免不小心传github被别人看到
@@ -74,6 +75,7 @@ def main():
                 with gr.Accordion("基础功能区", open=True) as area_basic_fn:
                     with gr.Row():
                         for k in functional:
+                            if ("Visible" in functional[k]) and (not functional[k]["Visible"]): continue
                             variant = functional[k]["Color"] if "Color" in functional[k] else "secondary"
                             functional[k]["Button"] = gr.Button(k, variant=variant)
                 with gr.Accordion("函数插件区", open=True) as area_crazy_fn:
@@ -144,6 +146,7 @@ def main():
         clearBtn2.click(lambda: ("",""), None, [txt, txt2])
         # 基础功能区的回调函数注册
         for k in functional:
+            if ("Visible" in functional[k]) and (not functional[k]["Visible"]): continue
             click_handle = functional[k]["Button"].click(fn=ArgsGeneralWrapper(predict), inputs=[*input_combo, gr.State(True), gr.State(k)], outputs=output_combo)
             cancel_handles.append(click_handle)
         # 文件上传区，接收文件后与chatbot的互动
@@ -152,7 +155,7 @@ def main():
         for k in crazy_fns:
             if not crazy_fns[k].get("AsButton", True): continue
             click_handle = crazy_fns[k]["Button"].click(ArgsGeneralWrapper(crazy_fns[k]["Function"]), [*input_combo, gr.State(PORT)], output_combo)
-            click_handle.then(on_report_generated, [file_upload, chatbot], [file_upload, chatbot])
+            click_handle.then(on_report_generated, [cookies, file_upload, chatbot], [cookies, file_upload, chatbot])
             cancel_handles.append(click_handle)
         # 函数插件-下拉菜单与随变按钮的互动
         def on_dropdown_changed(k):
@@ -172,7 +175,7 @@ def main():
             if k in [r"打开插件列表", r"请先从插件列表中选择"]: return
             yield from ArgsGeneralWrapper(crazy_fns[k]["Function"])(*args, **kwargs)
         click_handle = switchy_bt.click(route,[switchy_bt, *input_combo, gr.State(PORT)], output_combo)
-        click_handle.then(on_report_generated, [file_upload, chatbot], [file_upload, chatbot])
+        click_handle.then(on_report_generated, [cookies, file_upload, chatbot], [cookies, file_upload, chatbot])
         cancel_handles.append(click_handle)
         # 终止按钮的回调函数注册
         stopBtn.click(fn=None, inputs=None, outputs=None, cancels=cancel_handles)
@@ -183,18 +186,21 @@ def main():
         import threading, webbrowser, time
         print(f"如果浏览器没有自动打开，请复制并转到以下URL：")
         print(f"\t（亮色主题）: http://localhost:{PORT}")
-        print(f"\t（暗色主题）: http://localhost:{PORT}/?__dark-theme=true")
+        print(f"\t（暗色主题）: http://localhost:{PORT}/?__theme=dark")
         def open():
             time.sleep(2)       # 打开浏览器
             DARK_MODE, = get_conf('DARK_MODE')
-            if DARK_MODE: webbrowser.open_new_tab(f"http://localhost:{PORT}/?__dark-theme=true")
+            if DARK_MODE: webbrowser.open_new_tab(f"http://localhost:{PORT}/?__theme=dark")
             else: webbrowser.open_new_tab(f"http://localhost:{PORT}")
         threading.Thread(target=open, name="open-browser", daemon=True).start()
         threading.Thread(target=auto_update, name="self-upgrade", daemon=True).start()
         threading.Thread(target=warm_up_modules, name="warm-up", daemon=True).start()
 
     auto_opentab_delay()
-    demo.queue(concurrency_count=CONCURRENT_COUNT).launch(server_name="0.0.0.0", server_port=PORT, auth=AUTHENTICATION, favicon_path="docs/logo.png")
+    demo.queue(concurrency_count=CONCURRENT_COUNT).launch(
+        server_name="0.0.0.0", server_port=PORT,
+        favicon_path="docs/logo.png", auth=AUTHENTICATION,
+        blocked_paths=["config.py","config_private.py","docker-compose.yml","Dockerfile"])
 
     # 如果需要在二级路径下运行
     # CUSTOM_PATH, = get_conf('CUSTOM_PATH')
@@ -202,7 +208,8 @@ def main():
     #     from toolbox import run_gradio_in_subpath
     #     run_gradio_in_subpath(demo, auth=AUTHENTICATION, port=PORT, custom_path=CUSTOM_PATH)
     # else: 
-    #     demo.launch(server_name="0.0.0.0", server_port=PORT, auth=AUTHENTICATION, favicon_path="docs/logo.png")
+    #     demo.launch(server_name="0.0.0.0", server_port=PORT, auth=AUTHENTICATION, favicon_path="docs/logo.png",
+    #                 blocked_paths=["config.py","config_private.py","docker-compose.yml","Dockerfile"])
 
 if __name__ == "__main__":
     main()
